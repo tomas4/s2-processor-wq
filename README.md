@@ -1,89 +1,105 @@
-# Sentinel-2 L2A Processor & Water Quality Analysis Toolkit
+# Sentinel-2 L2A Processor & Water Quality Toolkit (`s2-processor-wq`)
 
-## Overview
-This tool automates the extraction, multiband raster creation, seected L3 products creation, cloud/water masking, and empirical model execution (e.g., Chlorophyll-a estimation) from Sentinel-2 L2A `.SAFE` image products.
+A Python-based workflow with CLI wrapper support for processing Sentinel-2 L2A `.SAFE` image products (both `.zip` archives and extracted directories). The toolkit automates GIS pre-processing, multiband raster creation, spectral index calculation (L3 products), cloud/water masking, and empirical water quality model execution (e.g., Chlorophyll-a estimation).
 
-## Features
-- **Pure Python Implementation**: Replaces legacy GDAL CLI tools with native `osgeo.gdal` and `numpy` bindings.
-- **Ordered Multiband Export**: Includes Band 1 and Band 8 in 20m datasets, sorting all bands numerically (`B01, B02, ..., B08, B8A, B11, B12`).
-- **Refined SCL Water Filter**: Default water mask combines MNDWI thresholding ($>0.1$), Band 11 upper boundary checking, and SCL class verification (SCL = 6).
-- **Template Placeholder Substitution**: Automatically substitutes `{xDATETIME}` and `{xDATE}` across recipe workflows.
-- **QML Style Distribution**: Automatically links `.qml` visual style presets to created datasets.
+---
 
-## Dependencies & Installation
+## 🔑 Key Features
 
-### Requirements
-- Python 3.8+
-- GDAL Python bindings (`osgeo.gdal`)
-- NumPy (`numpy`)
+* **Autonomous Metadata Parsing**: Dynamically extracts Tile ID, Spatial Reference (EPSG), Quantification Value, and BOA Radiometric Offset directly from `MTD_MSIL2A.xml` inside the `.SAFE` package. No manual entry required.
+* **Native Grid Preservation**: Uses native 20m band geometry as a spatial template to eliminate pixel shift, half-pixel offsets, and artificial resamplings.
+* **Automated L2 & L3 Product Generation**:
+  * **Multiband Rasters**: Numerically sorted spectral bands exported to ERDAS Imagine (`.img`) files for 10m, 20m, and 60m resolutions (`{TILE}_{DATETIME}_20m.img`).
+  * **Modified Normalized Difference Water Index (MNDWI)**: High-resolution water surface highlighting (`{TILE}_{DATETIME}_mndwi_20m.img`).
+  * **Cloud & Shadow Mask**: Binary mask isolating clouds and atmospheric noise (`{TILE}_{DATETIME}_cloud_mask_20m.img`).
+  * **Refined Water Surface Mask**: Multi-criteria water extraction combining MNDWI thresholding ($>0.1$), SWIR (B11) upper boundary checks, and SCL verification (`{TILE}_{DATETIME}_water_mask_20m.img`).
+  * **Water Quality Model (L3 Chlorophyll-a)**: Final concentration GeoTIFF calculated via configurable recipe templates (`chla_{xDATE}_TBDO1_2023.tif`).
+* **QGIS Style Integration**: Automatically copies and matches `.qml` visual style presets to generated datasets for immediate rendering in QGIS.
 
-### Installation Commands
+---
 
-#### Linux (Ubuntu/Debian)
-```
-python
-bash
-sudo apt update
-sudo apt install python3-gdal python3-numpy
-```
-#### macOS (via Homebrew)
-```
-brew install gdal
-pip3 install numpy gdal
-```
+## ⚙️ Configuration (`config.json`)
 
-#### Windows (via OSGeo4W or Anaconda)
-Using OSGeo4W Shell:
+Geographic parameters (`tile`, `epsg`) are auto-detected from dataset metadata. The `config.json` file focuses purely on water classification thresholds and QGIS styling paths:
 
-```
-osgeo4w-setup.exe
+```json
+{
+  "max_water_rf_b11": 500,
+  "use_scl_water_filter": true,
+  "style_dir": "C:/Users/tobr0222/ownCloud/Dropbox/scripts/dev_python/L2A_WQ/styles/",
+  "styles": {
+    "20m.img": "styles/S2A-L2A_20m_REF_11-6-2.qml",
+    "cloud_mask_20m.img": "styles/mask-clouds-0gray-1nothing.qml",
+    "water_mask_20m.img": "styles/mask-water-1azure-0nothing.qml",
+    "chla_{xDATE}_TBDO1_2023.tif": "styles/chlorofyl0-60-600_BCGYRM.qml"
+  }
+}
 ```
 
-Or via Conda:
+### Parameter Description:
+* `max_water_rf_b11`: Upper reflectance threshold for Band 11 (SWIR) used during water masking (automatically offset-corrected).
+* `use_scl_water_filter`: Boolean flag (`true`/`false`) toggling SCL layer verification (SCL = 6 for water).
+* `style_dir`: Absolute or relative path to the directory containing `.qml` style templates.
+* `styles`: Mapping dictionary linking generated raster filenames to their corresponding `.qml` style presets.
 
+---
+
+## 🚀 Execution & Usage
+
+Cross-platform wrapper scripts are provided to execute the pipeline without manually activating virtual environments or navigating OSGeo4W shells.
+
+### 1. Windows Execution (`L2A_WQ_processor_win.cmd`)
+The Windows batch wrapper automatically detects local OSGeo4W / QGIS installations, sets up GDAL environment variables, and executes the Python script.
+
+```cmd
+L2A_WQ_processor_win.cmd <path_to_SAFE_or_ZIP> [config.json] [recipe.json]
 ```
-conda install -c conda-forge gdal numpy
+
+**Example:**
+```cmd
+L2A_WQ_processor_win.cmd S2A_MSIL2A_20260814T100041_N0512_R122_T33UWR_20260814T151116.SAFE.zip config.json
 ```
 
-### Usage
-1. Create a project directory and place `s2_l2a_processor.py`, `config.json`, `chl_a_recipe_template.json`, and `README.md` inside it.
-2. Ensure you have a `styles/` subfolder containing your target QML styling files (`s2_20m.qml`, `cloud_mask.qml`, `water_mask.qml`, `chla_tbdo1.qml`)[cite: 1, 4, 5]. 
-3. Edit the .json files to include styles or modify the formula 
-4. Run the script against one of your `.SAFE` folders or `.zip` archives:
+### 2. Linux / macOS Execution (`L2A_WQ_processor_bash.sh`)
+The shell wrapper automatically activates a local Python virtual environment (`venv`) containing GDAL bindings and launches processing.
+
+```bash
+chmod +x L2A_WQ_processor_bash.sh
+./L2A_WQ_processor_bash.sh <path_to_SAFE_or_ZIP> [config.json] [recipe.json]
 ```
-python s2_l2a_processor.py /path/to/S2B_MSIL2A_20250613T100029...SAFE [config.json] [chl_a_recipe_template.json]
+
+### 3. Direct Python Execution
+If your environment already has `osgeo.gdal` and `numpy` installed:
+
+```bash
+python s2_l2a_processor.py /path/to/S2A_MSIL2A_...SAFE [config.json] [recipe.json]
 ```
 
-#### Where Output Files Are Created
+---
 
-The Python script (s2_l2a_processor.py) creates all output files in the current working directory (the directory from which you execute the python command in your terminal/command line).
+## 📁 Generated Output Files
 
-When you run the command from a folder (e.g., cd /path/to/project && python s2_l2a_processor.py ...), the script uses relative paths for saving the rasters:
+All output rasters and their associated `.qml` style files are saved in the current working directory from which the command is executed:
 
-**Multiband Rasters (10m, 20m, 60m):**
+| Output Filename | Format | Description |
+| :--- | :--- | :--- |
+| `{TILE}_{xDATETIME}_10m.img` | ERDAS Imagine (Multiband) | 10m resolution bands (B02, B03, B04, B08) |
+| `{TILE}_{xDATETIME}_20m.img` | ERDAS Imagine (Multiband) | 20m resolution bands (B01–B12, numerically sorted) |
+| `{TILE}_{xDATETIME}_60m.img` | ERDAS Imagine (Multiband) | 60m resolution bands |
+| `{TILE}_{xDATETIME}_mndwi_20m.img` | Float32 Raster | MNDWI spectral index layer |
+| `{TILE}_{xDATETIME}_cloud_mask_20m.img` | Binary Mask (0/1) | Cloud and cloud shadow mask |
+| `{TILE}_{xDATETIME}_water_mask_20m.img` | Binary Mask (0/1) | Water surface mask |
+| `chla_{xDATE}_TBDO1_2023.tif` | GeoTIFF (Float32) | Calculated Chlorophyll-a concentration map |
+| `*.qml` | QGIS Style File | Auto-copied style files matching each output raster |
 
-Saved directly in your current working directory.
+---
 
-Filenames: {TILE}_{xDATETIME}_10m.img, {TILE}_{xDATETIME}_20m.img, {TILE}_{xDATETIME}_60m.img (along with their corresponding .vrt files).
+## 💻 Requirements & Dependencies
 
-**Generated Masks & Indices:**
+- **Python**: 3.8 or higher
+- **GDAL**: `osgeo.gdal` Python bindings
+- **NumPy**: `numpy`
 
-Saved in your current working directory.
-
-Filenames: {TILE}_{xDATETIME}_mndwi_20m.img, {TILE}_{xDATETIME}_cloud_mask_20m.img, {TILE}_{xDATETIME}_water_mask_20m.img.
-
-**Model Output Raster (Chlorophyll-a):**
-
-Saved in your current working directory as defined by the recipe template.
-
-Filename: chla_{xDATE}_TBDO1_2023.tif.
-
-**Style Files (.qml):**
-
-        Copied directly alongside each generated raster in your current working directory, using matching base filenames so QGIS auto-detects them.
-
-#### Cross-Platform Notes
-1. **Path Separators:** Standardized using os.path.join for cross-platform compatibility across Windows backslashes (\\) and UNIX forward slashes (/).
-2. **GDAL Drivers:** Uses standard HFA (.img) and GTiff (.tif) drivers supported identically across all operating systems.
-
-
+### Cross-Platform Compatibility Notes
+1. **Path Handling**: Utilizes `os.path` methods to ensure seamless switching between Windows backslashes (`\`) and UNIX forward slashes (`/`).
+2. **GDAL Drivers**: Uses standard HFA (`.img`) and GTiff (`.tif`) drivers supported uniformly across Linux, Windows, and macOS.
