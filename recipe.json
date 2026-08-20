@@ -1,0 +1,12 @@
+{
+  "recipe_name": "TBDO1_2023",
+  "output_filename": "chla_{xDATE}_TBDO1_2023.tif",
+  "inputs": {
+    "A": { "file": "{TILE}_{xDATETIME}_20m.vrt", "band": 4 },
+    "B": { "file": "{TILE}_{xDATETIME}_20m.vrt", "band": 5 },
+    "C": { "file": "{TILE}_{xDATETIME}_water_mask_20m.img", "band": 1 },
+    "D": { "file": "{TILE}_{xDATETIME}_cloud_mask_20m.img", "band": 1 },
+    "E": { "file": "{TILE}_{xDATETIME}_20m.vrt", "band": 6 }
+  },
+  "formula": "np.where((C > 0) & (D > 0), ((-1.84429535 + 6.25752184 * np.cbrt(((1.0 / (np.maximum(10000.0 * A, 1)) - 1.0 / (np.maximum(10000.0 * B, 1))) * (np.maximum(10000.0 * E, 1))) + 0.2)) ** 3), np.nan)"
+}

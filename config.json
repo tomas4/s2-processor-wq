@@ -1,0 +1,14 @@
+{
+  "max_water_rf_b11": 500,
+  "use_scl_water_filter": false,
+  "style_dir": "C:/Users/tobr0222/ownCloud/Dropbox/scripts/dev_python/L2A_WQ/styles/",
+  "styles": {
+    "10m.img": "10m_4-3-2.qml",
+    "20m.img": "20m_11-6-2.qml",
+    "60m.img": "60m_11-6-2.qml",
+    "cloud_mask_20m.img": "mask-clouds-0gray-1nothing.qml",
+    "water_mask_20m.img": "mask-water-1azure-0nothing.qml",
+    "chla_{xDATE}_TBDO1_2023.tif": "chlorofyl0-60-600_BCGYRM.qml"
+  },
+  "create_img": false
+}
