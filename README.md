@@ -1,6 +1,6 @@
 # Sentinel-2 L2A Processor & Water Quality Toolkit (`s2-processor-wq`)
 
-A Python-based workflow with CLI wrapper support for processing Sentinel-2 L2A `.SAFE` image products (both `.zip` archives and extracted directories). The toolkit automates GIS pre-processing, multiband raster creation, spectral index calculation (L3 products), cloud/water masking, and empirical water quality model execution (e.g., Chlorophyll-a estimation).
+A Python-based workflow with CLI wrapper support for processing Sentinel-2 L2A `.SAFE` image products (both `.zip` archives and extracted directories). The toolkit automates GIS pre-processing, multiband raster creation, spectral index calculation (L3 products), cloud/water masking, and empirical water quality model execution (e.g., Chlorophyll-a estimation). The outputs should be supported by most modern desktop GIS platforms, but are tested in [QGIS](https://qgis.osgeo.org) specifically.
 
 ---
 
@@ -9,7 +9,7 @@ A Python-based workflow with CLI wrapper support for processing Sentinel-2 L2A `
 * **Autonomous Metadata Parsing**: Dynamically extracts Tile ID, Spatial Reference (EPSG), Quantification Value, and BOA Radiometric Offset directly from `MTD_MSIL2A.xml` inside the `.SAFE` package. No manual entry required.
 * **Native Grid Preservation**: Uses native 20m band geometry as a spatial template to eliminate pixel shift, half-pixel offsets, and artificial resamplings.
 * **Automated L2 & L3 Product Generation**:
-  * **Multiband Rasters**: Numerically sorted spectral bands exported to ERDAS Imagine (`.img`) files for 10m, 20m, and 60m resolutions (`{TILE}_{DATETIME}_20m.img`).
+  * **Multiband Rasters**: Numerically sorted spectral bands exported to ERDAS Imagine (`.img`) and Virtual Raster (`.vrt`) files for 10m, 20m, and 60m resolutions (`{TILE}_{DATETIME}_20m.img`).
   * **Modified Normalized Difference Water Index (MNDWI)**: High-resolution water surface highlighting (`{TILE}_{DATETIME}_mndwi_20m.img`).
   * **Cloud & Shadow Mask**: Binary mask isolating clouds and atmospheric noise (`{TILE}_{DATETIME}_cloud_mask_20m.img`).
   * **Refined Water Surface Mask**: Multi-criteria water extraction combining MNDWI thresholding ($>0.1$), SWIR (B11) upper boundary checks, and SCL verification (`{TILE}_{DATETIME}_water_mask_20m.img`).
@@ -83,14 +83,16 @@ All output rasters and their associated `.qml` style files are saved in the curr
 
 | Output Filename | Format | Description |
 | :--- | :--- | :--- |
-| `{TILE}_{xDATETIME}_10m.img` | ERDAS Imagine (Multiband) | 10m resolution bands (B02, B03, B04, B08) |
-| `{TILE}_{xDATETIME}_20m.img` | ERDAS Imagine (Multiband) | 20m resolution bands (B01–B12, numerically sorted) |
-| `{TILE}_{xDATETIME}_60m.img` | ERDAS Imagine (Multiband) | 60m resolution bands |
+| `{TILE}_{xDATETIME}_10m.img` `{TILE}_{xDATETIME}_10m.vrt` | ERDAS Imagine & Virtual Raster (Multiband) | 10m resolution bands (B02, B03, B04, B08) |
+| `{TILE}_{xDATETIME}_20m.img` `{TILE}_{xDATETIME}_20m.vrt` | ERDAS Imagine & Virtual Raster (Multiband) | 20m resolution bands (B01–B08, B8A, B11, B12, numerically sorted) |
+| `{TILE}_{xDATETIME}_60m.img` `{TILE}_{xDATETIME}_60m.vrt` | ERDAS Imagine & Virtual Raster (Multiband) | 60m resolution bands (B01–B08, B8A, B09 B11, B12, numerically sorted) |
 | `{TILE}_{xDATETIME}_mndwi_20m.img` | Float32 Raster | MNDWI spectral index layer |
 | `{TILE}_{xDATETIME}_cloud_mask_20m.img` | Binary Mask (0/1) | Cloud and cloud shadow mask |
 | `{TILE}_{xDATETIME}_water_mask_20m.img` | Binary Mask (0/1) | Water surface mask |
 | `chla_{xDATE}_TBDO1_2023.tif` | GeoTIFF (Float32) | Calculated Chlorophyll-a concentration map |
 | `*.qml` | QGIS Style File | Auto-copied style files matching each output raster |
+
+The Erdas imagine format rasters are created optionally, based on *create_img* setting in *config.json*. The Virtual Raster files point to the original .SAFE format directory for bands data; to keep them working, preserve the unpacked .SAFE directory at its original location. You can decide to keep either multiband .img files only (and delete .VRT files and the .SAFE directory when the script did its work), or generate only .vrt files and keep the .SAFE directory to save disk space. The Erdas Imagine .img format files should be more effective speed-wise, when moving around in the map in a GIS, the Virtual Raster .vrt & SAFE combination has the added benefit of keeping the original data with all its metadata and bands not used by the script. If you started with a zip archive of SAFE format data, the zip file can be safely deleted, when extracted by the script.
 
 ---
 
@@ -103,3 +105,10 @@ All output rasters and their associated `.qml` style files are saved in the curr
 ### Cross-Platform Compatibility Notes
 1. **Path Handling**: Utilizes `os.path` methods to ensure seamless switching between Windows backslashes (`\`) and UNIX forward slashes (`/`).
 2. **GDAL Drivers**: Uses standard HFA (`.img`) and GTiff (`.tif`) drivers supported uniformly across Linux, Windows, and macOS.
+
+## 🎯 Future Goals & Planned Features
+In the next updates I would like to:
+* Change the output chl-a estimate to Erdas Imagine format as well, to keep the formats uniform.
+* Add .vrt and optional .img file for SCL (Scene Classification Layer) and possibly the other two auxiliary/derived bands
+* Gradually add some more optionally generated generally usable Level-3 .img files, especially common vegetation, moisture, fire or other indices (NDVI, NDMI, NBR ...).
+* Perhaps adding 10m multiband files with the same the band set as in the 20m resolution, the coarser resolution bands upscaled to finer resolution.
