@@ -2,6 +2,8 @@
 
 A Python-based workflow with CLI wrapper support for processing Sentinel-2 L2A `.SAFE` image products (both `.zip` archives and extracted directories). The toolkit automates GIS pre-processing, multiband raster creation, spectral index calculation (L3 products), cloud/water masking, and empirical water quality model execution (e.g., Chlorophyll-a estimation). The outputs should be supported by most modern desktop GIS platforms, but are tested in [QGIS](https://qgis.osgeo.org) specifically.
 
+Consider this an alpha, untested software, until this notice is removed.
+
 ---
 
 ## 🔑 Key Features
