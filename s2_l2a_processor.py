@@ -7,8 +7,11 @@ Converts SAFE format L2A data to multiband datasets, calculates masks/indices,
 and applies chlorophyll-a prediction algorithms.
 DEVNOTES:
 * new metadata parsing needs testing (also with older data)
-* create_img config switch should be implemented in the script
-* styles need verification/update for new bands, plus: add styles for 10m and 60m
+* create_img config switch should be implemented in the script [DONE]
+* styles need verification/update for new bands, plus: add styles for 10m and 60m [DONE]
+* implement relative (to script location) path to styles directory
+NEW:
+* 20260823 added function load_band_as_reflectance and applied in the functions working with band values
 """
 
 import os
@@ -31,6 +34,42 @@ BAND_MAP = {
     "20m": ["B01", "B02", "B03", "B04", "B05", "B06", "B07", "B08", "B8A", "B11", "B12"],
     "60m": ["B01", "B02", "B03", "B04", "B05", "B06", "B07", "B08", "B8A", "B09", "B11", "B12"]
 }
+
+def load_band_as_reflectance(
+    band_path: str,
+    band_idx: int = 1,
+    offset: float = 0.0,
+    quant_val: float = 10000.0,
+) -> np.ndarray:
+    """Load a specific band from a raster/VRT file and convert raw Digital Numbers (DN)
+
+    to Surface Reflectance (0.0 to 1.0).
+
+    Parameters:
+        band_path (str): File path to the raster source or VRT.
+        band_idx (int): Band index to read (1-based index, default is 1).
+        offset (float): Radiometric BOA_ADD_OFFSET from Sentinel-2 metadata
+          (e.g., -1000.0).
+        quant_val (float): QUANTIFICATION_VALUE from Sentinel-2 metadata
+          (default is 10000.0).
+
+    Returns:
+        np.ndarray: 2D array of float32 values representing surface reflectance.
+    """
+    dataset = gdal.Open(band_path)
+    if not dataset:
+        raise FileNotFoundError(f"Failed to open raster file: {band_path}")
+
+    # Read the specified band array as float32 to prevent numerical overflow
+    raw_dn = dataset.GetRasterBand(band_idx).ReadAsArray().astype(np.float32)
+
+    # Convert DN to Surface Reflectance
+    reflectance = (raw_dn + offset) / quant_val
+
+    # Clip negative values to zero (e.g. shadows, deep water noise)
+    reflectance = np.clip(reflectance, 0.0, None)
+
+    return reflectance
 
 def extract_safe_archive(input_path):
     """Unzips SAFE archive if a zip file is provided."""
@@ -237,30 +276,61 @@ def build_multiband_dataset(safe_dir, tile, epsg, resolution, bname, quantificat
         print(f"[SUCCESS] Created dataset: {img_name}")
     return vrt_name, img_name
 
-def generate_masks_and_indices(safe_dir, tile, bname, offset, max_water_rf_b11, use_scl_filter):
-    """Generates MNDWI, SCL Cloud Mask, and SCL-Filtered Water Mask rasters."""
+def generate_masks_and_indices(
+    safe_dir: str,
+    tile: str,
+    xdatetime: str,
+    offset: float,
+    quant_val: float,
+    max_water_rf_b11: float,
+    use_scl_filter: bool,
+) -> tuple[str, str]:
+    """Generates MNDWI, SCL Cloud Mask, and SCL-Filtered Water Mask rasters.
+
+    Parameters:
+        safe_dir (str): Path to the input Sentinel-2 SAFE directory.
+        tile (str): Tile identifier (e.g., T33UVR).
+        xdatetime (str): Full acquisition timestamp string.
+        offset (float): Radiometric BOA_ADD_OFFSET from metadata.
+        quant_val (float): QUANTIFICATION_VALUE from metadata.
+        max_water_rf_b11 (float): Maximum SWIR1 reflectance threshold for water filtering.
+        use_scl_filter (bool): Flag to enable/disable Scene Classification Layer filtering.
+
+    Returns:
+        tuple[str, str]: File paths to generated MNDWI and water mask rasters.
+    """
+    bname = f"{tile}_{xdatetime}"
     vrt_20m_path = f"{bname}_20m.vrt"
+
+    # Open VRT to retrieve georeferencing info and dimensions
     ds_20m = gdal.Open(vrt_20m_path)
-    
-    # Read Band 2 (Green), Band 11 (SWIR1), Band 8A or 11 index lookup
-    # 20m band order: B01(1), B02(2), B03(3), B04(4), B05(5), B06(6), B07(7), B08(8), B8A(9), B11(10), B12(11)
-    b03_arr = ds_20m.GetRasterBand(3).ReadAsArray().astype(np.float32) # Green
-    b11_arr = ds_20m.GetRasterBand(10).ReadAsArray().astype(np.float32) # SWIR1
+    if not ds_20m:
+        raise FileNotFoundError(f"Failed to open 20m VRT file: {vrt_20m_path}")
 
-    # Apply offset
-    b03_corr = np.maximum(b03_arr + offset, 1.0)
-    b11_corr = np.maximum(b11_arr + offset, 1.0)
-
-    # 1. MNDWI Calculation: (Green - SWIR1) / (Green + SWIR1)
-    mndwi = (b03_corr - b11_corr) / (b03_corr + b11_corr)
-    
-    # Write MNDWI Raster
     geo_transform = ds_20m.GetGeoTransform()
     projection = ds_20m.GetProjection()
+    x_size = ds_20m.RasterXSize
+    y_size = ds_20m.RasterYSize
+    ds_20m = None  # Close handle
+
+    # Load Green (B03) and SWIR1 (B11) as reflectance (0.0 - 1.0)
+    # 20m VRT band order: B01(1), B02(2), B03(3), B04(4), B05(5), B06(6), B07(7), B08(8), B8A(9), B11(10), B12(11)
+    b03_refl = load_band_as_reflectance(
+        vrt_20m_path, band_idx=3, offset=offset, quant_val=quant_val
+    )
+    b11_refl = load_band_as_reflectance(
+        vrt_20m_path, band_idx=10, offset=offset, quant_val=quant_val
+    )
+
+    # 1. MNDWI Calculation: (Green - SWIR1) / (Green + SWIR1)
+    mndwi = (b03_refl - b11_refl) / (b03_refl + b11_refl + 1e-6)
+
+    # Write MNDWI Raster
     driver_hfa = gdal.GetDriverByName("HFA")
-    
     mndwi_file = f"{bname}_mndwi_20m.img"
-    ds_mndwi = driver_hfa.Create(mndwi_file, ds_20m.RasterXSize, ds_20m.RasterYSize, 1, gdal.GDT_Float32, ["COMPRESSED=YES"])
+    ds_mndwi = driver_hfa.Create(
+        mndwi_file, x_size, y_size, 1, gdal.GDT_Float32, ["COMPRESSED=YES"]
+    )
     ds_mndwi.SetGeoTransform(geo_transform)
     ds_mndwi.SetProjection(projection)
     ds_mndwi.GetRasterBand(1).WriteArray(mndwi)
@@ -269,81 +339,131 @@ def generate_masks_and_indices(safe_dir, tile, bname, offset, max_water_rf_b11, 
 
     # 2. SCL Processing (Cloud & Water Masking)
     granule_dirs = glob.glob(os.path.join(safe_dir, "GRANULE", f"*{tile}*"))
-    scl_matches = glob.glob(os.path.join(granule_dirs[0], "IMG_DATA", "R20m", "*_SCL_20m.jp2"))
-    
+    if not granule_dirs:
+        raise FileNotFoundError(f"Granule directory for tile {tile} not found.")
+
+    scl_matches = glob.glob(
+        os.path.join(granule_dirs[0], "IMG_DATA", "R20m", "*_SCL_20m.jp2")
+    )
     if not scl_matches:
         raise FileNotFoundError("SCL 20m raster not found.")
-        
+
     ds_scl = gdal.Open(scl_matches[0])
     scl_arr = ds_scl.ReadAsArray()
+    ds_scl = None
 
     # Cloud Mask: 1 for valid pixels, 0 for cloud/shadow/cirrus
     # SCL values: 3 (cloud shadow), 8 (cloud medium prob), 9 (cloud high prob), 10 (thin cirrus)
     cloud_mask = np.where(np.isin(scl_arr, [3, 8, 9, 10]), 0, 1).astype(np.uint8)
-    
+
     cloud_file = f"{bname}_cloud_mask_20m.img"
-    ds_cloud = driver_hfa.Create(cloud_file, ds_20m.RasterXSize, ds_20m.RasterYSize, 1, gdal.GDT_Byte, ["COMPRESSED=YES"])
+    ds_cloud = driver_hfa.Create(
+        cloud_file, x_size, y_size, 1, gdal.GDT_Byte, ["COMPRESSED=YES"]
+    )
     ds_cloud.SetGeoTransform(geo_transform)
     ds_cloud.SetProjection(projection)
     ds_cloud.GetRasterBand(1).WriteArray(cloud_mask)
     ds_cloud = None
     print(f"[SUCCESS] Created Cloud Mask: {cloud_file}")
 
-    # 3. Water Mask Logic (MNDWI > 0.1 AND B11 < Threshold AND optionally SCL == 6)
-    water_condition = (mndwi > 0.1) & (b11_arr < (max_water_rf_b11 - offset)) & (cloud_mask == 1)
+    # 3. Water Mask Logic (MNDWI > 0.1 AND B11 < Threshold AND cloud_mask == 1)
+    water_condition = (
+        (mndwi > 0.1) & (b11_refl < max_water_rf_b11) & (cloud_mask == 1)
+    )
     if use_scl_filter:
-        water_condition = water_condition & (scl_arr == 6) # SCL 6 = Water
+        water_condition = water_condition & (scl_arr == 6)  # SCL 6 = Water
 
     water_mask = np.where(water_condition, 1, 0).astype(np.uint8)
-    
+
     water_file = f"{bname}_water_mask_20m.img"
-    ds_water = driver_hfa.Create(water_file, ds_20m.RasterXSize, ds_20m.RasterYSize, 1, gdal.GDT_Byte, ["COMPRESSED=YES"])
+    ds_water = driver_hfa.Create(
+        water_file, x_size, y_size, 1, gdal.GDT_Byte, ["COMPRESSED=YES"]
+    )
     ds_water.SetGeoTransform(geo_transform)
     ds_water.SetProjection(projection)
     ds_water.GetRasterBand(1).WriteArray(water_mask)
     ds_water = None
-    print(f"[SUCCESS] Created Water Mask (SCL Filtered={use_scl_filter}): {water_file}")
+    print(
+        f"[SUCCESS] Created Water Mask (SCL Filtered={use_scl_filter}): {water_file}"
+    )
 
-def run_recipe_model(recipe_path, tile, xdatetime, xdate):
-    """Executes model equation recipe using evaluated NumPy expressions."""
-    with open(recipe_path, 'r') as f:
+    return mndwi_file, water_file
+
+def run_recipe_model(
+    recipe_path: str,
+    tile: str,
+    xdatetime: str,
+    xdate: str,
+    offset: float = 0.0,
+    quant_val: float = 10000.0,
+) -> str:
+    """Executes model equation recipe using evaluated NumPy expressions on surface reflectance
+
+    data and saves the output as an ERDAS Imagine (.img) raster.
+    """
+    with open(recipe_path, "r") as f:
         recipe = json.load(f)
 
-    # Format filenames with placeholders
-    out_filename = recipe["output_filename"].replace("{xDATE}", xdate).replace("{xDATETIME}", xdatetime).replace("{TILE}", tile)
-    
+    raw_out_name = recipe["output_filename"].format(
+        xDATE=xdate, xDATETIME=xdatetime, TILE=tile
+    )
+    out_filename = os.path.splitext(raw_out_name)[0] + ".img"
+
     loaded_bands = {}
     geo_transform = None
     projection = None
     x_size, y_size = 0, 0
 
     for var_name, var_info in recipe["inputs"].items():
-        fname = var_info["file"].replace("{xDATE}", xdate).replace("{xDATETIME}", xdatetime).replace("{TILE}", tile)
-        band_num = var_info["band"]
-        
-        ds = gdal.Open(fname)
+        fname = var_info["file"].format(
+            xDATE=xdate, xDATETIME=xdatetime, TILE=tile
+        )
+        band_num = var_info.get("band", 1)
+
+        # Retrieve georeferencing metadata from the first input file
         if geo_transform is None:
-            geo_transform = ds.GetGeoTransform()
-            projection = ds.GetProjection()
-            x_size = ds.RasterXSize
-            y_size = ds.RasterYSize
-            
-        loaded_bands[var_name] = ds.GetRasterBand(band_num).ReadAsArray().astype(np.float32)
+            ds_ref = gdal.Open(fname)
+            if not ds_ref:
+                raise FileNotFoundError(f"Failed to open input raster: {fname}")
+            geo_transform = ds_ref.GetGeoTransform()
+            projection = ds_ref.GetProjection()
+            x_size = ds_ref.RasterXSize
+            y_size = ds_ref.RasterYSize
+            ds_ref = None
+
+        # Check if the input file is a binary mask (.img) or optical band (.vrt/.jp2)
+        if fname.lower().endswith(".img") or "mask" in fname.lower():
+            # Load masks directly as raw numpy array (integers/floats without radiometric correction)
+            ds_mask = gdal.Open(fname)
+            if not ds_mask:
+                raise FileNotFoundError(f"Failed to open mask raster: {fname}")
+            loaded_bands[var_name] = ds_mask.GetRasterBand(band_num).ReadAsArray().astype(np.float32)
+            ds_mask = None
+        else:
+            # Load optical bands as physical surface reflectance (0.0 - 1.0)
+            loaded_bands[var_name] = load_band_as_reflectance(
+                band_path=fname,
+                band_idx=band_num,
+                offset=offset,
+                quant_val=quant_val,
+            )
 
     # Evaluate equation formula in local environment context
     eval_env = {**loaded_bands, "np": np}
     result_array = eval(recipe["formula"], {}, eval_env)
 
-    # Output GeoTIFF creation
-    driver_gtiff = gdal.GetDriverByName("GTiff")
-    ds_out = driver_gtiff.Create(out_filename, x_size, y_size, 1, gdal.GDT_Float32)
+    # Output ERDAS Imagine (.img) creation using HFA driver
+    driver_hfa = gdal.GetDriverByName("HFA")
+    ds_out = driver_hfa.Create(out_filename, x_size, y_size, 1, gdal.GDT_Float32)
     ds_out.SetGeoTransform(geo_transform)
     ds_out.SetProjection(projection)
+
     band_out = ds_out.GetRasterBand(1)
     band_out.WriteArray(result_array)
     band_out.SetNoDataValue(np.nan)
+
     ds_out = None
-    
+
     print(f"[SUCCESS] Applied Model Algorithm. Output: {out_filename}")
     return out_filename
 
@@ -435,10 +555,18 @@ def main():
         build_multiband_dataset(safe_dir, tile, epsg, res, bname, quantification, offset, config['create_img'])
 
     # 2. Build Masks & Indices
-    generate_masks_and_indices(safe_dir, tile, bname, offset, config['max_water_rf_b11'], config['use_scl_water_filter'])
+    mndwi_path, water_mask_path = generate_masks_and_indices(
+        safe_dir=safe_dir,
+        tile=tile,
+        xdatetime=xdatetime,
+        offset=offset,
+        quant_val=quantification,
+        max_water_rf_b11=config["max_water_rf_b11"],
+        use_scl_filter=config["use_scl_water_filter"],
+    )
 
     # 3. Apply Water Quality Model
-    out_tif = run_recipe_model(recipe_path, tile, xdatetime, xdate)
+    out_img = run_recipe_model(recipe_path, tile, xdatetime, xdate, offset, quantification)
 
     # 4. Copy QML Presets
     apply_qml_styles(tile, xdatetime, xdate, config)
