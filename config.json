@@ -11,6 +11,7 @@
     "60m.img": "60m_11-6-2.qml",
     "cloud_mask_20m.img": "mask-clouds-0gray-1nothing.qml",
     "water_mask_20m.img": "mask-water-1azure-0nothing.qml",
+    "mndwi_20m.img": "mndwi-grey_qgis3.qml",
     "chla_{xDATE}_TBDO1_2023.tif": "chlorofyl0-60-600_BCGYRM.qml"
   },
   "comment_create_img": "Multiband 10m, 20m, and 60m .img files are not needed for generating the other outputs, but may be useful for your GIS work, if .vrt files are slow or not supported on your GIS workstation.",
