@@ -22,20 +22,27 @@ Consider this an alpha, untested software, until this notice is removed.
 
 ## ⚙️ Configuration (`config.json`)
 
-Geographic parameters (`tile`, `epsg`) are auto-detected from dataset metadata. The `config.json` file focuses purely on water classification thresholds and QGIS styling paths:
+Geographic parameters (`tile`, `epsg`) are auto-detected from dataset metadata. The `config.json` file focuses purely on water classification thresholds and QGIS styling paths. You have to edit the styles paths for the styles to work:
 
 ```json
 {
-  "max_water_rf_b11": 500,
-  "use_scl_water_filter": true,
-  "style_dir": "C:/Users/tobr0222/ownCloud/Dropbox/scripts/dev_python/L2A_WQ/styles/",
+  "comment_max_water_rf_b11": "This is value of maximal Band 11 (SWIR) reflectance on clear water used in water mask.",
+  "max_water_rf_b11": 0.05,
+  "comment_use_scl_water_filter": "Set to false to detect more water areas, than detected by the SCL classificiation. Set to true if no-water areas are detected as water. Even if true, the water areas are further limited to open water area by other means.",
+  "use_scl_water_filter": false,
+  "comment_style_dir": "EDIT THIS! Fill the real absolute path to your styles directory. Use forward slashes on Windows.",
+  "style_dir": "C:/path/to/styles/",
   "styles": {
-    "20m.img": "styles/S2A-L2A_20m_REF_11-6-2.qml",
-    "cloud_mask_20m.img": "styles/mask-clouds-0gray-1nothing.qml",
-    "water_mask_20m.img": "styles/mask-water-1azure-0nothing.qml",
-    "chla_{xDATE}_TBDO1_2023.tif": "styles/chlorofyl0-60-600_BCGYRM.qml"
-  }
-}
+    "10m.img": "10m_4-3-2.qml",
+    "20m.img": "20m_11-6-2.qml",
+    "60m.img": "60m_11-6-2.qml",
+    "cloud_mask_20m.img": "mask-clouds-0gray-1nothing.qml",
+    "water_mask_20m.img": "mask-water-1azure-0nothing.qml",
+    "chla_{xDATE}_TBDO1_2023.tif": "chlorofyl0-60-600_BCGYRM.qml"
+  },
+  "comment_create_img": "Multiband 10m, 20m, and 60m .img files are not needed for generating the other outputs, but may be useful for your GIS work, if .vrt files are slow or not supported on your GIS workstation.",
+  "create_img": false
+}    
 ```
 
 ### Parameter Description:
@@ -94,7 +101,7 @@ All output rasters and their associated `.qml` style files are saved in the curr
 | `chla_{xDATE}_TBDO1_2023.tif` | GeoTIFF (Float32) | Calculated Chlorophyll-a concentration map |
 | `*.qml` | QGIS Style File | Auto-copied style files matching each output raster |
 
-The Erdas imagine format rasters are created optionally, based on *create_img* setting in *config.json*. The Virtual Raster files point to the original .SAFE format directory for bands data; to keep them working, preserve the unpacked .SAFE directory at its original location. You can decide to keep either multiband .img files only (and delete .VRT files and the .SAFE directory when the script did its work), or generate only .vrt files and keep the .SAFE directory to save disk space. The Erdas Imagine .img format files should be more effective speed-wise, when moving around in the map in a GIS, the Virtual Raster .vrt & SAFE combination has the added benefit of keeping the original data with all its metadata and bands not used by the script. If you started with a zip archive of SAFE format data, the zip file can be safely deleted, when extracted by the script.
+The Erdas imagine format multiband rasters are created optionally, based on *create_img* setting in *config.json*. The Virtual Raster files point to the original .SAFE format directory for bands data; to keep them working, preserve the unpacked .SAFE directory at its original location. You can decide to keep either multiband .img files only (and delete .VRT files and the .SAFE directory when the script did its work), or generate only .vrt files and keep the .SAFE directory to save disk space. The Erdas Imagine .img format files should be more effective speed-wise, when moving around in the map in a GIS, the Virtual Raster .vrt & SAFE combination has the added benefit of keeping the original data with all its metadata and bands not used by the script. If you started with a zip archive of SAFE format data, the zip file can be safely deleted, when extracted by the script.
 
 ---
 
